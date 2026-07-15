@@ -9,18 +9,18 @@ import (
 	"time"
 )
 
-// pushToClay POSTs one row per request to a Clay webhook source.
-//
-// ponytail: sequential, one row per POST. Clay's webhook takes a single JSON
-// object per request; batching isn't offered. Go concurrent if 200+ rows ever
-// makes this the slow step (it won't on the free tier's 200-row table cap).
-//
-// Known ceiling: a webhook source accepts 50,000 submissions lifetime, and the
-// count survives row deletion. A long-lived demo template eventually needs a
-// fresh webhook URL.
+
+
+
+
+
+
+
+
+
 func pushToClay(ctx context.Context, webhook, authToken string, rows []map[string]any) (int, error) {
 	if webhook == "" {
-		return 0, nil // no webhook configured: export still works
+		return 0, nil 
 	}
 	sent := 0
 	for i, row := range rows {
@@ -45,7 +45,7 @@ func pushToClay(ctx context.Context, webhook, authToken string, rows []map[strin
 			return sent, fmt.Errorf("clay row %d: HTTP %d", i+1, resp.StatusCode)
 		}
 		sent++
-		time.Sleep(120 * time.Millisecond) // be polite to the free tier
+		time.Sleep(120 * time.Millisecond) 
 	}
 	return sent, nil
 }
