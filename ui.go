@@ -1,7 +1,7 @@
 package main
 
-// ponytail: one embedded page, no build step. It's a form, a checklist and a
-// table. Move to Next.js + shadcn when the demo needs polish beyond this.
+
+
 const indexHTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -53,7 +53,7 @@ const indexHTML = `<!doctype html>
     <button id="go">Build engine</button>
     <details>
       <summary>Clay webhook (optional)</summary>
-      <input id="hook" placeholder="https://api.clay.com/v3/sources/webhook/..." autocomplete="off">
+      <input id="hook" placeholder="https:
       <input id="tok" placeholder="auth token (optional)" autocomplete="off">
     </details>
   </form>
