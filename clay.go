@@ -9,18 +9,9 @@ import (
 	"time"
 )
 
-
-
-
-
-
-
-
-
-
 func pushToClay(ctx context.Context, webhook, authToken string, rows []map[string]any) (int, error) {
 	if webhook == "" {
-		return 0, nil 
+		return 0, nil
 	}
 	sent := 0
 	for i, row := range rows {
@@ -45,7 +36,7 @@ func pushToClay(ctx context.Context, webhook, authToken string, rows []map[strin
 			return sent, fmt.Errorf("clay row %d: HTTP %d", i+1, resp.StatusCode)
 		}
 		sent++
-		time.Sleep(120 * time.Millisecond) 
+		time.Sleep(120 * time.Millisecond)
 	}
 	return sent, nil
 }

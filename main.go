@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-
-
+// ponytail: in-memory job registry, no database. Jobs live ~2 minutes and die
+// with the process. Add SQLite when job history needs to outlive a restart.
 type Job struct {
 	ID          string
 	Website     string
@@ -34,7 +34,7 @@ type Job struct {
 
 type Event struct {
 	Step   string `json:"step"`
-	Status string `json:"status"` 
+	Status string `json:"status"` // running | done | error | skipped
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -97,7 +97,7 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("outbound.sieve on http:
+	log.Printf("outbound.sieve on http://localhost:%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
@@ -125,7 +125,7 @@ func handleCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "website required", http.StatusBadRequest)
 		return
 	}
-	if req.ClayWebhook != "" && !strings.HasPrefix(req.ClayWebhook, "https:
+	if req.ClayWebhook != "" && !strings.HasPrefix(req.ClayWebhook, "https://") {
 		http.Error(w, "clay webhook must be https", http.StatusBadRequest)
 		return
 	}
@@ -139,8 +139,8 @@ func handleCreate(w http.ResponseWriter, r *http.Request) {
 	jobs[job.ID] = job
 	jobsMu.Unlock()
 
-	
-	
+	// ponytail: goroutine, not a queue. One machine, two-minute jobs.
+	// Detached from the request context so a closed tab doesn't kill the run.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 		defer cancel()
@@ -156,11 +156,11 @@ func getJob(r *http.Request) *Job {
 	return jobs[r.PathValue("id")]
 }
 
-
-
-
-
-
+// handleEvents streams progress.
+//
+// ponytail: polls the event log every 200ms instead of fanning out channels.
+// Replay for late subscribers is free, and there's no goroutine to leak.
+// Revisit if a job ever emits fast enough for 200ms to feel laggy.
 func handleEvents(w http.ResponseWriter, r *http.Request) {
 	job := getJob(r)
 	if job == nil {
@@ -238,8 +238,8 @@ func writeJSON(w http.ResponseWriter, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-
-
+// loadDotEnv reads KEY=VALUE lines. Real env always wins.
+// ponytail: 15 lines beats a dependency for this.
 func loadDotEnv(path string) {
 	f, err := os.Open(path)
 	if err != nil {

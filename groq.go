@@ -12,10 +12,10 @@ import (
 	"time"
 )
 
-
+// ponytail: one model constant. Swap if output quality drags.
 const groqModel = "llama-3.3-70b-versatile"
 
-const groqURL = "https:
+const groqURL = "https://api.groq.com/openai/v1/chat/completions"
 
 var groqClient = &http.Client{Timeout: 90 * time.Second}
 
@@ -40,21 +40,21 @@ type groqResp struct {
 	} `json:"error"`
 }
 
-
-
-
+// parseRetryAfter reads Groq's retry-after header (seconds, possibly
+// fractional). Falls back to 5s when absent or unparseable, and pads by 250ms
+// so we don't race the window boundary.
 func parseRetryAfter(h string) time.Duration {
 	secs, err := strconv.ParseFloat(strings.TrimSpace(h), 64)
 	if err != nil || secs <= 0 {
 		return 5 * time.Second
 	}
 	if secs > 60 {
-		secs = 60 
+		secs = 60 // never stall a job on a pathological hint
 	}
 	return time.Duration(secs*float64(time.Second)) + 250*time.Millisecond
 }
 
-
+// groqJSON runs a prompt in JSON mode and unmarshals into out.
 func groqJSON(ctx context.Context, system, user string, out any) error {
 	key := os.Getenv("GROQ_API_KEY")
 	if key == "" {
@@ -71,15 +71,15 @@ func groqJSON(ctx context.Context, system, user string, out any) error {
 		return err
 	}
 
-	
-	
-	
+	// Groq's free tier is 12k tokens/minute, and a full run needs more than that,
+	// so 429s are expected, not exceptional. Groq sends retry-after telling us
+	// exactly how long to wait — honor it instead of guessing at a backoff.
 	var lastErr error
 	wait := time.Duration(0)
 	for attempt := range 5 {
 		if attempt > 0 {
 			if wait <= 0 {
-				wait = time.Duration(attempt) * 2 * time.Second 
+				wait = time.Duration(attempt) * 2 * time.Second // non-429 failure
 			}
 			select {
 			case <-ctx.Done():

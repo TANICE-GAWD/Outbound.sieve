@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-
+// packageEngine writes the downloadable GTM engine zip and returns its path.
 func packageEngine(jobID string, p Profile, targets []Target) (string, error) {
 	if err := os.MkdirAll("out", 0o755); err != nil {
 		return "", err
@@ -131,10 +131,10 @@ func hubspotCSV(targets []Target) string {
 	return b.String()
 }
 
-
-
-
-
+// n8nWorkflow is a static importable skeleton: Clay -> Groq -> HubSpot -> Slack.
+//
+// ponytail: static template, no node-graph builder. The demo imports it and it
+// runs; generating graphs dynamically is a project, not a feature.
 func n8nWorkflow(p Profile) string {
 	wf := map[string]any{
 		"name": p.Name + " — GTM Engine",

@@ -9,18 +9,18 @@ import (
 	"time"
 )
 
-
-
+// ponytail: stdlib fetch + tag strip. Swap in Firecrawl when a JS-heavy site
+// returns empty text (check: fetchSite returns < ~200 chars for a real site).
 
 const maxBody = 512 << 10
 
-
-
-
+// thinSite is the char count below which a page is effectively client-rendered
+// and we're running on meta tags alone. Everything downstream gets weaker, so
+// the pipeline says so out loud rather than quietly guessing.
 const thinSite = 600
 
 var (
-	
+	// Go's regexp is RE2: no backreferences, so each tag is spelled out.
 	reScript = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script>` +
 		`|<style\b[^>]*>.*?</style>` +
 		`|<noscript\b[^>]*>.*?</noscript>` +
@@ -36,17 +36,17 @@ var (
 	reLDJSON = regexp.MustCompile(`(?is)<script[^>]*type\s*=\s*["']application/ld\+json["'][^>]*>(.*?)</script>`)
 )
 
-
-
-
+// metaKeys are the head tags worth reading. Client-rendered sites (Lovable,
+// Framer, most SPA builders) ship an empty body — the meta description is
+// often the only real copy in the HTML, and it's usually the positioning line.
 var metaKeys = map[string]bool{
 	"description": true, "og:description": true, "og:title": true,
 	"og:site_name": true, "twitter:description": true, "twitter:title": true,
 	"keywords": true, "application-name": true,
 }
 
-
-
+// metaText pulls title, meta descriptions and JSON-LD out of raw HTML,
+// deduped and in a stable order.
 func metaText(raw string) string {
 	var out []string
 	seen := map[string]bool{}
@@ -78,7 +78,7 @@ func metaText(raw string) string {
 
 var httpClient = &http.Client{Timeout: 12 * time.Second}
 
-
+// fetchPage returns visible text from one URL, or "" if it can't be read.
 func fetchPage(ctx context.Context, url string) string {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -100,7 +100,7 @@ func fetchPage(ctx context.Context, url string) string {
 	if err != nil {
 		return ""
 	}
-	
+	// Head first: on a client-rendered page it's all there is.
 	return strings.TrimSpace(metaText(string(raw)) + "\n" + htmlText(string(raw)))
 }
 
@@ -111,20 +111,20 @@ func htmlText(raw string) string {
 	return strings.TrimSpace(reSpace.ReplaceAllString(s, " "))
 }
 
-
+// normalizeURL makes a bare domain usable ("acme.com" -> "https://acme.com").
 func normalizeURL(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
 	}
-	if !strings.HasPrefix(s, "http:
-		s = "https:
+	if !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") {
+		s = "https://" + s
 	}
 	return strings.TrimSuffix(s, "/")
 }
 
-
-
+// fetchSite reads the homepage plus a couple of high-signal subpages.
+// Empty return means the site is dead or unreadable — callers drop it.
 func fetchSite(ctx context.Context, site string) string {
 	base := normalizeURL(site)
 	if base == "" {
@@ -132,7 +132,7 @@ func fetchSite(ctx context.Context, site string) string {
 	}
 	home := fetchPage(ctx, base)
 	if home == "" {
-		return "" 
+		return "" // dead domain: nothing downstream should trust it
 	}
 	var b strings.Builder
 	b.WriteString(home)
@@ -147,7 +147,7 @@ func fetchSite(ctx context.Context, site string) string {
 	}
 	out := b.String()
 	if len(out) > 24000 {
-		out = out[:24000] 
+		out = out[:24000] // Groq context is generous but prompts are cheaper short
 	}
 	return out
 }
