@@ -1,7 +1,5 @@
 package main
 
-// ponytail: one embedded page, no build step. It's a form, a checklist and a
-// table. Move to Next.js + shadcn when the demo needs polish beyond this.
 const indexHTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -25,6 +23,9 @@ const indexHTML = `<!doctype html>
   button:disabled { opacity:.4; cursor:default; }
   details { margin-top:12px; color:var(--dim); font-size:13px; }
   details input { margin-top:8px; width:100%; }
+  textarea { margin-top:8px; width:100%; background:var(--card); border:1px solid var(--line);
+             color:var(--fg); padding:11px 14px; border-radius:8px; font:13px/1.5 ui-monospace,monospace; resize:vertical; }
+  textarea:focus { outline:none; border-color:#3f3f46; }
   .steps { margin-top:36px; display:flex; flex-direction:column; gap:2px; }
   .step { display:flex; gap:10px; align-items:baseline; padding:7px 0; font-variant-numeric:tabular-nums; }
   .step .icon { width:16px; flex:none; }
@@ -56,6 +57,12 @@ const indexHTML = `<!doctype html>
       <input id="hook" placeholder="https://api.clay.com/v3/sources/webhook/..." autocomplete="off">
       <input id="tok" placeholder="auth token (optional)" autocomplete="off">
     </details>
+    <details>
+      <summary>Account list — Apollo CSV (optional)</summary>
+      <p class="note">Paste an Apollo export with Company and Website/Domain columns. When set, these become the accounts instead of the model guessing them, and the size cap is a hard filter.</p>
+      <textarea id="csv" rows="4" placeholder="Company,Website,# Employees&#10;Acme,acme.com,140" autocomplete="off"></textarea>
+      <input id="maxemp" type="number" min="0" placeholder="max employees (e.g. 500) — blank = no cap" autocomplete="off">
+    </details>
   </form>
 
   <div class="steps" id="steps"></div>
@@ -73,7 +80,7 @@ $("#f").onsubmit = async e => {
 
   const r = await fetch("/api/jobs", {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ website:$("#site").value, clay_webhook:$("#hook").value, clay_token:$("#tok").value })
+    body: JSON.stringify({ website:$("#site").value, clay_webhook:$("#hook").value, clay_token:$("#tok").value, accounts_csv:$("#csv").value, max_employees:parseInt($("#maxemp").value)||0 })
   });
   if (!r.ok) { $("#out").textContent = await r.text(); $("#go").disabled = false; return; }
   const { id } = await r.json();
@@ -105,7 +112,7 @@ async function show(id) {
     "<div class='wrap'><table><thead><tr><th>Company</th><th>Website</th><th>Opening line</th>" +
     "<th class='score'>ICP</th></tr></thead><tbody>" + rows + "</tbody></table></div>" +
     (d.download ? "<a class='dl' href='/api/jobs/" + id + "/download'>Download GTM engine</a>" : "") +
-    "<p class='note'>Employees, revenue, funding and tech stack are intentionally blank. " +
+    "<p class='note'>Employee count and annual revenue are intentionally blank. " +
     "Clay's waterfall fills those.</p>";
 }
 const esc = s => String(s).replace(/[&<>"']/g, c =>

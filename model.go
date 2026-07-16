@@ -1,6 +1,5 @@
 package main
 
-// ICP is what Groq infers from the user's own site.
 type ICP struct {
 	Description   string   `json:"description"`
 	Industries    []string `json:"industries"`
@@ -18,7 +17,6 @@ type Persona struct {
 	Triggers  []string `json:"triggers"`
 }
 
-// Profile describes the user's own company.
 type Profile struct {
 	Name      string    `json:"name"`
 	Website   string    `json:"website"`
@@ -29,14 +27,10 @@ type Profile struct {
 	Personas  []Persona `json:"personas"`
 }
 
-// Target is a candidate account. Name/Website come from Groq; Description is
-// crawled from the live site. Firmographics (employees, revenue, funding, tech
-// stack) are deliberately absent — Clay's waterfall fills those, and we do not
-// invent them.
 type Target struct {
 	Name        string `json:"name"`
 	Website     string `json:"website"`
-	Description string `json:"description"` // crawled, real
+	Description string `json:"description"`
 	Industry    string `json:"industry"`
 	ICPScore    int    `json:"icp_score"`
 	Summary     string `json:"summary"`
@@ -49,11 +43,6 @@ type Target struct {
 	Followup2   string `json:"followup_2"`
 }
 
-// clayRow maps a Target to the Companies table payload.
-//
-// ponytail: field names must match Clay column names character for character,
-// capitalization included, or Clay drops them silently. Keep this map and the
-// workspace columns in sync by hand — there is no API to verify against.
 func (t Target) clayRow() map[string]any {
 	return map[string]any{
 		"Company":         t.Name,

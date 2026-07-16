@@ -15,13 +15,13 @@ import (
 	"time"
 )
 
-// ponytail: in-memory job registry, no database. Jobs live ~2 minutes and die
-// with the process. Add SQLite when job history needs to outlive a restart.
 type Job struct {
-	ID          string
-	Website     string
-	ClayWebhook string
-	ClayToken   string
+	ID           string
+	Website      string
+	ClayWebhook  string
+	ClayToken    string
+	AccountsCSV  string
+	MaxEmployees int
 
 	mu      sync.Mutex
 	Events  []Event
@@ -34,7 +34,7 @@ type Job struct {
 
 type Event struct {
 	Step   string `json:"step"`
-	Status string `json:"status"` // running | done | error | skipped
+	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -112,11 +112,14 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func handleCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Website     string `json:"website"`
-		ClayWebhook string `json:"clay_webhook"`
-		ClayToken   string `json:"clay_token"`
+		Website      string `json:"website"`
+		ClayWebhook  string `json:"clay_webhook"`
+		ClayToken    string `json:"clay_token"`
+		AccountsCSV  string `json:"accounts_csv"`
+		MaxEmployees int    `json:"max_employees"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+	// CSV can be large; 8KB was sized for a bare form. 2MB covers an Apollo export.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -134,13 +137,15 @@ func handleCreate(w http.ResponseWriter, r *http.Request) {
 		req.ClayToken = os.Getenv("CLAY_WEBHOOK_AUTH")
 	}
 
-	job := &Job{ID: newID(), Website: req.Website, ClayWebhook: req.ClayWebhook, ClayToken: req.ClayToken}
+	job := &Job{
+		ID: newID(), Website: req.Website,
+		ClayWebhook: req.ClayWebhook, ClayToken: req.ClayToken,
+		AccountsCSV: req.AccountsCSV, MaxEmployees: req.MaxEmployees,
+	}
 	jobsMu.Lock()
 	jobs[job.ID] = job
 	jobsMu.Unlock()
 
-	// ponytail: goroutine, not a queue. One machine, two-minute jobs.
-	// Detached from the request context so a closed tab doesn't kill the run.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 		defer cancel()
@@ -156,11 +161,6 @@ func getJob(r *http.Request) *Job {
 	return jobs[r.PathValue("id")]
 }
 
-// handleEvents streams progress.
-//
-// ponytail: polls the event log every 200ms instead of fanning out channels.
-// Replay for late subscribers is free, and there's no goroutine to leak.
-// Revisit if a job ever emits fast enough for 200ms to feel laggy.
 func handleEvents(w http.ResponseWriter, r *http.Request) {
 	job := getJob(r)
 	if job == nil {
@@ -238,8 +238,6 @@ func writeJSON(w http.ResponseWriter, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
-// loadDotEnv reads KEY=VALUE lines. Real env always wins.
-// ponytail: 15 lines beats a dependency for this.
 func loadDotEnv(path string) {
 	f, err := os.Open(path)
 	if err != nil {
