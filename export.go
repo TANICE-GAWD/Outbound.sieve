@@ -84,9 +84,9 @@ func readme(p Profile, targets []Target) string {
 	fmt.Fprintf(&b, "Firmographics (employee count, annual revenue) are intentionally\n")
 	fmt.Fprintf(&b, "blank here — Clay's waterfall fills them. Every website below was fetched\n")
 	fmt.Fprintf(&b, "and verified live; descriptions are from the real site, not generated.\n\n")
-	fmt.Fprintf(&b, "| Company | Website | ICP Score |\n|---|---|---|\n")
+	fmt.Fprintf(&b, "| Company | Website | ICP Score | Mail | Why kept |\n|---|---|---|---|---|\n")
 	for _, t := range targets {
-		fmt.Fprintf(&b, "| %s | %s | %d |\n", t.Name, t.Website, t.ICPScore)
+		fmt.Fprintf(&b, "| %s | %s | %d | %s | %s |\n", t.Name, t.Website, t.ICPScore, t.MailStatus, t.QualifyReason)
 	}
 	return b.String()
 }
@@ -122,9 +122,9 @@ func followupsMD(targets []Target) string {
 func hubspotCSV(targets []Target) string {
 	var b strings.Builder
 	w := csv.NewWriter(&b)
-	w.Write([]string{"Name", "Domain", "Industry", "Description", "ICP Score", "Pain Points", "Campaign Status"})
+	w.Write([]string{"Name", "Domain", "Industry", "Description", "ICP Score", "Pain Points", "Mail Status", "Qualify Reason", "Verified At", "Campaign Status"})
 	for _, t := range targets {
-		w.Write([]string{t.Name, t.Website, t.Industry, t.Summary, strconv.Itoa(t.ICPScore), t.PainPoints, "Ready"})
+		w.Write([]string{t.Name, t.Website, t.Industry, t.Summary, strconv.Itoa(t.ICPScore), t.PainPoints, t.MailStatus, t.QualifyReason, t.VerifiedAt, "Ready"})
 	}
 	w.Flush()
 	return b.String()

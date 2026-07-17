@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const targetCount = 10
@@ -107,8 +108,9 @@ Exactly 3 personas in the buying committee.`,
 	} else {
 		var candWrap struct {
 			Companies []struct {
-				Name    string `json:"name"`
-				Website string `json:"website"`
+				Name     string `json:"name"`
+				Website  string `json:"website"`
+				SizeTier string `json:"size_tier"`
 			} `json:"companies"`
 		}
 		err = groqJSON(ctx, sysProspector, fmt.Sprintf(`ICP: %s
@@ -118,32 +120,65 @@ Geos: %s
 
 Name %d REAL companies that fit this ICP, with their real primary domain.
 
-Size is a hard filter, not a hint. Skip the household names and market leaders
-in this category — they are too large to buy this and naming them signals you
-guessed. Aim for the mid-market and boutique firms a founder would actually
-recognise as a peer.
-Exclude %s itself, and exclude direct competitors of it.
-Return JSON: {"companies":[{"name","website"}]}`,
+Who to name — this IS the task, not a hint:
+- Buyable firms only. The buyer must be able to say yes fast, without a
+  procurement committee or a year-long enterprise cycle: boutique, emerging, and
+  lower-mid-market, where one champion (a founder, a partner, a team lead) has
+  the authority to sign.
+- Firms that FEEL the pain — small enough that expensive incumbent tools hurt,
+  new enough to try something better.
+
+Who to EXCLUDE, hard:
+- Any globally-recognized or household-name institution. If a professional in
+  this field would instantly know the name, or it's one of the largest players
+  in the category, or you'd read about it in the business press — leave it out.
+  It will not buy from a small vendor in a cycle that matters, and naming it just
+  signals you defaulted to the obvious.
+- %s itself, and its direct competitors.
+
+Before each pick, ask: "could a small, early-stage vendor realistically close
+this account this quarter?" If not, drop it and name a smaller peer instead.
+
+For each firm also return size_tier — its HONEST size:
+  "boutique" (small / emerging), "mid" (lower-mid-market), or
+  "large" (a major, established institution).
+Be accurate. Large firms are removed automatically, so if a firm is genuinely
+large the right move is to not name it at all — never relabel it to sneak it in.
+Return JSON: {"companies":[{"name","website","size_tier"}]}`,
 			p.ICP.Description, strings.Join(p.ICP.Industries, ", "), p.ICP.EmployeeRange,
-			strings.Join(p.ICP.Geos, ", "), targetCount+6, p.Name), &candWrap)
+			strings.Join(p.ICP.Geos, ", "), targetCount+14, p.Name), &candWrap)
 		if err != nil {
 			job.fail("Finding Target Accounts", err.Error())
 			return
 		}
+		var tooBig int
 		for _, c := range candWrap.Companies {
-			cands = append(cands, candidate{Name: c.Name, Website: c.Website})
+			if strings.EqualFold(strings.TrimSpace(c.SizeTier), "large") {
+				tooBig++ // model admits it's a major institution — not buyable, drop it
+				continue
+			}
+			// -1, not 0: unknown headcount, so the qualify gate enriches and
+			// flags it rather than treating it as a 0-employee company.
+			cands = append(cands, candidate{Name: c.Name, Website: c.Website, Employees: -1})
 		}
-		job.ok("Finding Target Accounts", fmt.Sprintf("%d candidates", len(cands)))
+		detail := fmt.Sprintf("%d candidates", len(cands))
+		if tooBig > 0 {
+			detail = fmt.Sprintf("%d candidates, %d too large dropped", len(cands), tooBig)
+		}
+		job.ok("Finding Target Accounts", detail)
 	}
 
-	// Size cap: enrich unknown headcounts via Abstract, then drop anything over the
-	// cap. Runs on both paths. No cap set => skip entirely (unchanged behavior).
-	if job.MaxEmployees > 0 {
-		job.start("Checking Company Size")
-		if key := os.Getenv("ABSTRACT_API_KEY"); key != "" {
+	// Headcount: enrich unknowns whenever we have a key (so the qualify gate can
+	// judge against the ICP's real size band, not just the optional form cap),
+	// then apply the hard cap as a cheap pre-fetch drop. Unknown stays -1 and is
+	// kept-but-flagged at qualify time, never silently dropped.
+	if key := os.Getenv("ABSTRACT_API_KEY"); key != "" || job.MaxEmployees > 0 {
+		job.start("Enriching Headcount")
+		enriched := 0
+		if key != "" {
 			var (
 				wgE  sync.WaitGroup
-				semE = make(chan struct{}, 4) // Abstract free tier is 1 req/sec-ish; 4 is polite
+				semE = make(chan struct{}, 4) // Abstract free tier is ~1 req/sec; 4 is polite
 			)
 			for i := range cands {
 				if cands[i].Employees >= 0 {
@@ -160,20 +195,30 @@ Return JSON: {"companies":[{"name","website"}]}`,
 				}(i)
 			}
 			wgE.Wait()
+			for _, c := range cands {
+				if c.Employees >= 0 {
+					enriched++
+				}
+			}
 		}
-		kept, dropped := filterBySize(cands, job.MaxEmployees)
-		cands = kept
-		if len(cands) == 0 {
-			job.fail("Checking Company Size", fmt.Sprintf("every candidate was over the %d-employee cap", job.MaxEmployees))
-			return
+		dropped := 0
+		if job.MaxEmployees > 0 {
+			var kept []candidate
+			kept, dropped = filterBySize(cands, job.MaxEmployees)
+			cands = kept
+			if len(cands) == 0 {
+				job.fail("Enriching Headcount", fmt.Sprintf("every candidate was over the %d-employee cap", job.MaxEmployees))
+				return
+			}
 		}
-		job.ok("Checking Company Size", fmt.Sprintf("%d kept, %d over %d-employee cap dropped", len(cands), dropped, job.MaxEmployees))
+		job.ok("Enriching Headcount", fmt.Sprintf("%d/%d headcounts, %d over cap dropped", enriched, len(cands)+dropped, dropped))
 	}
 
 	job.start("Verifying Accounts")
 	type verified struct {
 		Target
-		site string
+		employees int
+		site      string
 	}
 	var (
 		mu   sync.Mutex
@@ -186,7 +231,7 @@ Return JSON: {"companies":[{"name","website"}]}`,
 			continue
 		}
 		wg.Add(1)
-		go func(name, web string) {
+		go func(name, web string, emp int) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
@@ -195,9 +240,13 @@ Return JSON: {"companies":[{"name","website"}]}`,
 				return
 			}
 			mu.Lock()
-			outs = append(outs, verified{Target{Name: name, Website: normalizeURL(web), Description: text}, text})
+			outs = append(outs, verified{
+				Target:    Target{Name: name, Website: normalizeURL(web), Description: text},
+				employees: emp,
+				site:      text,
+			})
 			mu.Unlock()
-		}(c.Name, c.Website)
+		}(c.Name, c.Website, c.Employees)
 	}
 	wg.Wait()
 	if len(outs) == 0 {
@@ -205,6 +254,72 @@ Return JSON: {"companies":[{"name","website"}]}`,
 		return
 	}
 	job.ok("Verifying Accounts", fmt.Sprintf("%d of %d live", len(outs), len(cands)))
+
+	// ICP gate: every keep/drop carries a reason, so the filtering is auditable
+	// instead of a black box. Off-ICP accounts are dropped here.
+	job.start("Qualifying Accounts")
+	{
+		kept := outs[:0]
+		for _, v := range outs {
+			pass, reason := qualify(candidate{Name: v.Name, Website: v.Website, Employees: v.employees}, v.site, p.ICP)
+			v.Qualified = pass
+			v.QualifyReason = reason
+			if pass {
+				kept = append(kept, v)
+			}
+		}
+		dropped := len(outs) - len(kept)
+		outs = kept
+		if len(outs) == 0 {
+			job.fail("Qualifying Accounts", "no account matched the ICP size band and industry/keywords")
+			return
+		}
+		job.ok("Qualifying Accounts", fmt.Sprintf("%d qualified, %d off-ICP dropped", len(outs), dropped))
+	}
+
+	// Deliverability: a domain with no mail server is a guaranteed bounce. Drop
+	// those; keep and flag free/throwaway domains as risky. Domain-level only —
+	// not per-mailbox proof.
+	job.start("Verifying Deliverability")
+	{
+		var (
+			wgD  sync.WaitGroup
+			semD = make(chan struct{}, 8)
+		)
+		for i := range outs {
+			wgD.Add(1)
+			go func(i int) {
+				defer wgD.Done()
+				semD <- struct{}{}
+				defer func() { <-semD }()
+				st, rz := mailDeliverability(ctx, domainOf(outs[i].Website))
+				outs[i].MailStatus = st // distinct index, no race
+				outs[i].MailReason = rz
+			}(i)
+		}
+		wgD.Wait()
+
+		kept := outs[:0]
+		var dead, deliverable, risky int
+		for _, v := range outs {
+			switch v.MailStatus {
+			case "invalid":
+				dead++
+				continue
+			case "deliverable":
+				deliverable++
+			case "risky":
+				risky++
+			}
+			kept = append(kept, v)
+		}
+		outs = kept
+		if len(outs) == 0 {
+			job.fail("Verifying Deliverability", "every domain was a guaranteed bounce (no mail server)")
+			return
+		}
+		job.ok("Verifying Deliverability", fmt.Sprintf("%d deliverable, %d risky, %d dead dropped", deliverable, risky, dead))
+	}
 
 	job.start("Lead Scoring")
 	for i := range outs {
@@ -283,10 +398,12 @@ Our only website is %s. Never write any other URL for us, and never invent one.`
 	}
 	wg.Wait()
 
+	now := time.Now().UTC().Format(time.RFC3339)
 	targets := make([]Target, len(outs))
 	for i, v := range outs {
 		targets[i] = v.Target
 		targets[i].Description = ""
+		targets[i].VerifiedAt = now
 	}
 	job.setTargets(targets)
 	if n := copyFails.Load(); n > 0 {
@@ -336,6 +453,9 @@ const sysProspector = `You are a GTM researcher naming real companies that match
 an ICP. Only name companies you are confident actually exist, with their real
 primary domain (e.g. "stripe.com"). Never invent a company or a domain — every
 domain you return is fetched and checked, and wrong ones are discarded.
+
+Right-size every pick: name firms a small vendor could actually close, not the
+biggest names in the category. A famous logo you can't win is worthless here.
 Reply with JSON only.`
 
 const sysCopywriter = `You are a senior outbound copywriter. Write specific,

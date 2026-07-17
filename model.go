@@ -41,6 +41,13 @@ type Target struct {
 	LinkedIn    string `json:"linkedin_message"`
 	Followup1   string `json:"followup_1"`
 	Followup2   string `json:"followup_2"`
+
+	// Provenance — every keep/drop decision explains itself.
+	Qualified     bool   `json:"qualified"`
+	QualifyReason string `json:"qualify_reason"`
+	MailStatus    string `json:"mail_status"`
+	MailReason    string `json:"mail_reason"`
+	VerifiedAt    string `json:"verified_at"`
 }
 
 func (t Target) clayRow() map[string]any {
@@ -55,6 +62,9 @@ func (t Target) clayRow() map[string]any {
 		"Opening Line":    t.OpeningLine,
 		"Cold Email":      t.ColdEmail,
 		"LinkedIn":        t.LinkedIn,
+		"Qualify Reason":  t.QualifyReason,
+		"Mail Status":     t.MailStatus,
+		"Verified At":     t.VerifiedAt,
 		"Campaign Status": "Ready",
 	}
 }
