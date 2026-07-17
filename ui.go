@@ -38,6 +38,10 @@ const indexHTML = `<!doctype html>
   th,td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { color:var(--dim); font-weight:500; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
   .score { font-variant-numeric:tabular-nums; text-align:right; }
+  .mail { text-transform:capitalize; font-size:13px; }
+  .mail.deliverable { color:var(--ok); }
+  .mail.risky { color:#fbbf24; }
+  .mail.invalid { color:var(--err); }
   .wrap { overflow-x:auto; }
   a.dl { display:inline-block; margin-top:28px; background:var(--ok); color:#000;
          padding:11px 20px; border-radius:8px; font-weight:600; text-decoration:none; }
@@ -50,7 +54,7 @@ const indexHTML = `<!doctype html>
   <p class="sub">Enter a website. Get a populated Clay workspace.</p>
 
   <form id="f">
-    <input id="site" placeholder="loopgtm.ai" autocomplete="off" required>
+    <input id="site" placeholder="allmind.ai" autocomplete="off" required>
     <button id="go">Build engine</button>
     <details>
       <summary>Clay webhook (optional)</summary>
@@ -107,10 +111,11 @@ async function show(id) {
   const d = await (await fetch("/api/jobs/" + id + "/result")).json();
   if (!d.targets || !d.targets.length) return;
   const rows = d.targets.map(t => "<tr><td>" + esc(t.name) + "</td><td>" + esc(t.website) +
-    "</td><td>" + esc(t.opening_line || "") + "</td><td class='score'>" + t.icp_score + "</td></tr>").join("");
+    "</td><td class='score'>" + t.icp_score + "</td><td class='mail " + esc(t.mail_status || "") + "'>" +
+    esc(t.mail_status || "") + "</td><td class='detail'>" + esc(t.qualify_reason || "") + "</td></tr>").join("");
   $("#out").innerHTML =
-    "<div class='wrap'><table><thead><tr><th>Company</th><th>Website</th><th>Opening line</th>" +
-    "<th class='score'>ICP</th></tr></thead><tbody>" + rows + "</tbody></table></div>" +
+    "<div class='wrap'><table><thead><tr><th>Company</th><th>Website</th>" +
+    "<th class='score'>ICP</th><th>Mail</th><th>Why kept</th></tr></thead><tbody>" + rows + "</tbody></table></div>" +
     (d.download ? "<a class='dl' href='/api/jobs/" + id + "/download'>Download GTM engine</a>" : "") +
     "<p class='note'>Employee count and annual revenue are intentionally blank. " +
     "Clay's waterfall fills those.</p>";

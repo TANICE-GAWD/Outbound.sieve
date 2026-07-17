@@ -6,6 +6,13 @@ const (
 	weightKeywords   = 55
 	weightIndustry   = 30
 	weightPainPoints = 15
+
+	// A single company's site never mentions *every* ICP term, so scoring on the
+	// fraction of all terms punishes clear fits. These saturation points say "this
+	// many hits already proves fit": reach them and the category pays out in full.
+	fullKeywords   = 3 // three on-ICP keywords is a strong signal
+	fullIndustry   = 1 // you're either in an ICP industry or you aren't
+	fullPainPoints = 1 // any pain-point match is meaningful (and rare)
 )
 
 func scoreICP(siteText string, icp ICP) int {
@@ -15,29 +22,31 @@ func scoreICP(siteText string, icp ICP) int {
 	hay := strings.ToLower(siteText)
 
 	score := 0.0
-	score += float64(weightKeywords) * hitRatio(hay, icp.Keywords)
-	score += float64(weightIndustry) * hitRatio(hay, icp.Industries)
-	score += float64(weightPainPoints) * hitRatio(hay, icp.PainPoints)
+	score += weightKeywords * saturate(hitCount(hay, icp.Keywords), fullKeywords)
+	score += weightIndustry * saturate(hitCount(hay, icp.Industries), fullIndustry)
+	score += weightPainPoints * saturate(hitCount(hay, icp.PainPoints), fullPainPoints)
 
 	return clamp(int(score+0.5), 0, 100)
 }
 
-func hitRatio(hay string, needles []string) float64 {
-	total, hits := 0, 0
-	for _, n := range needles {
-		n = strings.ToLower(strings.TrimSpace(n))
-		if n == "" {
-			continue
-		}
-		total++
-		if strings.Contains(hay, n) {
-			hits++
+// hitCount is how many distinct needles appear in hay.
+func hitCount(hay string, needles []string) int {
+	n := 0
+	for _, s := range needles {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s != "" && strings.Contains(hay, s) {
+			n++
 		}
 	}
-	if total == 0 {
-		return 0
+	return n
+}
+
+// saturate caps credit: full hits (or more) => 1.0, fewer => proportional.
+func saturate(hits, full int) float64 {
+	if full <= 0 || hits >= full {
+		return 1
 	}
-	return float64(hits) / float64(total)
+	return float64(hits) / float64(full)
 }
 
 func clamp(v, lo, hi int) int {

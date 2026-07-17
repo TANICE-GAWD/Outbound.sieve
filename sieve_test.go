@@ -41,6 +41,13 @@ func TestScoreICP(t *testing.T) {
 	if kwOnly <= ppOnly {
 		t.Errorf("keywords (%d) should outweigh pain points (%d)", kwOnly, ppOnly)
 	}
+
+	// A clear fit — in an ICP industry plus a couple of on-message keywords —
+	// should score high, not be punished for missing the rest of the ICP vocab.
+	strong := scoreICP("A SaaS agency. We fix outbound and cold email.", icp)
+	if strong < 60 {
+		t.Errorf("clear fit scored %d, want >=60 (saturating score)", strong)
+	}
 }
 
 func TestHTMLText(t *testing.T) {
